@@ -1,7 +1,28 @@
 import { supabase } from "../config/supabase.js";
 import { ROLES, LEDGER_MOVE } from "../config/constants.js";
 import { getAllowedBaseIds, ensureBaseAllowed } from "../utils/baseAccess.js";
+import { getLedgerBalance } from "../utils/ledger.js";
 import { writeAuditLog } from "../services/audit.service.js";
+
+function normalizeItems(items, assignmentId) {
+  return items.map((it) => ({
+    assignment_id: assignmentId,
+    equipment_type_id: it.equipment_type_id,
+    quantity: Number(it.quantity),
+  }));
+}
+
+function validateItems(rows) {
+  return rows.some((x) => !x.equipment_type_id || !Number.isFinite(x.quantity) || x.quantity <= 0);
+}
+
+function groupQtyByEquipment(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    map.set(r.equipment_type_id, (map.get(r.equipment_type_id) || 0) + r.quantity);
+  }
+  return map;
+}
 
 export async function createAssignment(req, res) {
   try {
@@ -19,6 +40,29 @@ export async function createAssignment(req, res) {
       return res.status(403).json({ message: "Forbidden: base access" });
     }
 
+    // Validate items before creating the assignment (prevents partial writes)
+    const tempRows = items.map((it) => ({
+      equipment_type_id: it.equipment_type_id,
+      quantity: Number(it.quantity),
+    }));
+
+    if (validateItems(tempRows)) {
+      return res.status(400).json({ message: "each item needs equipment_type_id and quantity > 0" });
+    }
+
+    // Stock check (ledger) - ensure base has enough for every equipment type
+    const grouped = groupQtyByEquipment(tempRows);
+    for (const [equipment_type_id, requiredQty] of grouped.entries()) {
+      const bal = await getLedgerBalance(base_id, equipment_type_id);
+      if (bal < requiredQty) {
+        return res.status(400).json({
+          message: "insufficient stock at base",
+          detail: { equipment_type_id, required: requiredQty, available: bal },
+        });
+      }
+    }
+
+    // Create assignment
     const { data: assignment, error: aErr } = await supabase
       .from("assignments")
       .insert({
@@ -34,15 +78,8 @@ export async function createAssignment(req, res) {
 
     if (aErr) return res.status(500).json({ message: "db error", detail: aErr.message });
 
-    const rows = items.map((it) => ({
-      assignment_id: assignment.id,
-      equipment_type_id: it.equipment_type_id,
-      quantity: Number(it.quantity),
-    }));
-
-    if (rows.some((x) => !x.equipment_type_id || !Number.isFinite(x.quantity) || x.quantity <= 0)) {
-      return res.status(400).json({ message: "each item needs equipment_type_id and quantity > 0" });
-    }
+    // Insert assignment items
+    const rows = normalizeItems(items, assignment.id);
 
     const { error: iErr } = await supabase.from("assignment_items").insert(rows);
     if (iErr) return res.status(500).json({ message: "items insert failed", detail: iErr.message });
@@ -94,19 +131,17 @@ export async function listAssignments(req, res) {
       .select("*, assignment_items(*)")
       .order("assigned_at", { ascending: false });
 
-    if (baseId) q = q.eq("base_id", baseId);
-    else if (allowed !== null) q = q.in("base_id", allowed);
-
     if (from) q = q.gte("assigned_at", from);
     if (to) q = q.lte("assigned_at", to);
 
-    // If equipment filter is present, filter client-side by embedded items
-    // (PostgREST can filter embedded with foreign table syntax, but this is simplest for assessment)
+    if (baseId) q = q.eq("base_id", baseId);
+    else if (allowed !== null) q = q.in("base_id", allowed);
+
     const { data, error } = await q;
     if (error) return res.status(500).json({ message: "db error", detail: error.message });
 
     const filtered = equipmentTypeId
-      ? data.filter((a) => (a.assignment_items || []).some((it) => it.equipment_type_id === equipmentTypeId))
+      ? (data || []).filter((a) => (a.assignment_items || []).some((it) => it.equipment_type_id === equipmentTypeId))
       : data;
 
     return res.json({ data: filtered });

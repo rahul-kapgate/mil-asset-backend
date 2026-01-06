@@ -3,23 +3,7 @@ import { ROLES, TRANSFER_STATUS, LEDGER_MOVE } from "../config/constants.js";
 import { getAllowedBaseIds, ensureBaseAllowed } from "../utils/baseAccess.js";
 import { writeAuditLog } from "../services/audit.service.js";
 
-// helper: current stock sum from ledger
-async function getBalance(baseId, equipmentTypeId) {
-  const { data, error } = await supabase
-    .from("inventory_ledger")
-    .select("qty_change.sum()")
-    .eq("base_id", baseId)
-    .eq("equipment_type_id", equipmentTypeId)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-
-  // PostgREST returns: { sum: { qty_change: <number> } } OR similar depending on client version.
-  // Safer fallback:
-  const raw = data?.sum ?? data?.["qty_change"] ?? data?.["qty_change.sum()"] ?? null;
-  const val = typeof raw === "number" ? raw : raw?.qty_change ?? 0;
-  return Number(val || 0);
-}
+import { getLedgerBalance } from "../utils/ledger.js";
 
 export async function createTransfer(req, res) {
   try {
@@ -226,7 +210,7 @@ export async function receiveTransfer(req, res) {
 
     // (Optional) Validate stock at from_base before receiving
     for (const item of transfer.transfer_items || []) {
-      const bal = await getBalance(transfer.from_base_id, item.equipment_type_id);
+      const bal = await getLedgerBalance(transfer.from_base_id, item.equipment_type_id);
       if (bal < item.quantity) {
         return res.status(400).json({
           message: "insufficient stock at from_base",
