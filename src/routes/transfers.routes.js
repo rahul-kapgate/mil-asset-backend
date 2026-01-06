@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { verifyAccessToken } from "../utils/jwt.js";
 import {
   createTransfer,
   approveTransfer,
@@ -10,11 +9,11 @@ import {
 
 const router = Router();
 
-router.post("/", verifyAccessToken, createTransfer);
-router.post("/:id/approve", verifyAccessToken, approveTransfer);
-router.post("/:id/dispatch", verifyAccessToken, dispatchTransfer);
-router.post("/:id/receive", verifyAccessToken, receiveTransfer);
+router.post("/", createTransfer);
+router.post("/:id/approve", approveTransfer);
+router.post("/:id/dispatch", dispatchTransfer);
+router.post("/:id/receive", receiveTransfer);
 
-router.get("/", verifyAccessToken, listTransfers);
+router.get("/", listTransfers);
 
 export default router;

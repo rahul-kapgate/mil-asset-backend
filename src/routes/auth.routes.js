@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { login, register, refresh } from "../controllers/auth.controller.js";
+import { authenticate } from "../middleware/auth.middleware.js";
+import { requireRole } from "../utils/rbac.middleware.js";
 
 const router = Router();
 
-router.post("/register", register);
-router.post("/login", login);
+// Admin-only user creation (prevents role escalation)
+router.post("/register", authenticate, requireRole(["ADMIN"]), register);
 
-//ref token 
+router.post("/login", login);
 router.post("/refresh", refresh);
 
 export default router;

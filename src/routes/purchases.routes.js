@@ -1,10 +1,9 @@
 import { Router } from "express";
-import { verifyAccessToken } from "../utils/jwt.js";
 import { createPurchase, listPurchases } from "../controllers/purchases.controller.js";
 
 const router = Router();
 
-router.post("/", verifyAccessToken, createPurchase);
-router.get("/", verifyAccessToken, listPurchases);
+router.post("/", createPurchase);
+router.get("/", listPurchases);
 
 export default router;

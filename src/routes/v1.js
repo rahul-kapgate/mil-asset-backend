@@ -1,5 +1,7 @@
 import { Router } from "express";
 
+import { authenticate } from "../middleware/auth.middleware.js";
+
 import basesRoutes from "./bases.routes.js";
 import equipmentRoutes from "./equipment.routes.js";
 import purchasesRoutes from "./purchases.routes.js";
@@ -10,6 +12,9 @@ import dashboardRoutes from "./dashboard.routes.js";
 import auditRoutes from "./audit.routes.js";
 
 const router = Router();
+
+// Protect ALL /api/v1 routes
+router.use(authenticate);
 
 router.use("/bases", basesRoutes);
 router.use("/equipment-types", equipmentRoutes);
